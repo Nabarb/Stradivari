@@ -1,10 +1,11 @@
+
 %% STRADIVARI plots a combination of half-violins, and raw datapoints (1d or 2d scatter).
-% [h,u] = STRADIVARI(X,Name,Value)
+% [h,u,med] = STRADIVARI(X,Name,Value)
 % displays the violin plots of X. X is a data matrix with columns 
 % corresponding to data points and rows to different cases. 
 % Each case gets its own violin.
 % 
-% [h,u] = STRADIVARI(AX,...)
+% [h,u,med] = STRADIVARI(AX,...)
 % plots into the axes with handle AX. If no axes are given it creates a new
 % figure.
 %
@@ -21,7 +22,7 @@
 %                      vector or a matrix M x 3, where M is the first
 %                      dimension of X.
 % band_width         - band_width of smoothing kernel (default = 1)
-% density_type       - choice of density algo ('ks' or 'rath'). Default = 'ks'
+% density_type       - choice of density algo ('ks' or 'rash'). Default = 'ks'
 % box_on             - logical to turn box plots on/off (default = 0)
 % alpha              - scalar positive value to increase cloud alpha (defalut = 1)
 % dot_dodge_amount   - scalar value to increase dot dodge amounts (defalut =0.6)
@@ -137,6 +138,10 @@ addOptional(p, 'grid_on', 0, @isnumeric)
 addOptional(p, 'coupled', (1:M), @isnumeric);
 addOptional(p, 'jitter',rand(M,N), @isnumeric)
 addOptional(p, 'normalization', 'area', @ischar)
+addOptional(p, 'legend', true, @islogical)
+
+addOptional(p, 'Xoffs', nan, @isnumeric)
+addOptional(p, 'Yoffs', nan, @isnumeric)
 
 
 
@@ -181,18 +186,29 @@ elseif exist('rst_RASH', 'file') == 2
 end
 
 PlotLegend = false;
-if ~any(ismember(p.UsingDefaults,'scatter_size')) && ~all(isnan(p.Results.scatter_size(:)))
+if ~any(ismember(p.UsingDefaults,'scatter_size')) && ~all(isnan(p.Results.scatter_size(:))) && ValidInArgs.legend
     PlotLegend = true;
 end
 
+if ~all(isnan(ValidInArgs.Xoffs(:))) && any(size(ValidInArgs.Xoffs)~=size(ind))
+    error('Xoffs size does not match violins distribution (defined in coupled).')
+elseif ~all(isnan(ValidInArgs.Xoffs(:))) && isnumeric(ValidInArgs.Xoffs)
+    ValidInArgs.Xoffs = num2cell(ValidInArgs.Xoffs);
+end
+
+if ~all(isnan(ValidInArgs.Yoffs(:))) && any(size(ValidInArgs.Yoffs)~=size(ind))
+    error('Yoffs size does not match violins distribution (defined in coupled).')
+elseif ~all(isnan(ValidInArgs.Yoffs(:))) && isnumeric(ValidInArgs.Yoffs)
+    ValidInArgs.Yoffs = num2cell(ValidInArgs.Yoffs);
+end
 %% Compute distribution and jittering
 for ii=1:size(ind,1)
     for jj=1:size(ind,2)
         if(isnan(ind(ii,jj))),Ydist{ii,jj}=0;continue;end
         %% calculate kernel density
-        
-        if RSTpresent,outliers{ii,jj} = rst_outlier(X(ind(ii,jj),:),3);
-        else,         outliers{ii,jj} = isoutlier(X(ind(ii,jj),:),'quartiles');end
+        nanInd = isnan(X(ind(ii,jj),:));
+        if RSTpresent,outliers{ii,jj} = logical(rst_outlier(X(ind(ii,jj),:),1));
+        else,         outliers{ii,jj} = logical(isoutlier(X(ind(ii,jj),:),'quartiles'));end
         
         switch ValidInArgs.density_type
             case 'ks'
@@ -206,7 +222,7 @@ for ii=1:size(ind,1)
                     % check for rst_RASH function (from Robust stats toolbox) in path, fail if not found
                     error('Could not compute density using RASH method. \nDo you have the Robust Stats toolbox on your path?');
                 end
-                [Xdist{ii,jj}, Ydist{ii,jj}] = rst_RASH(sort(X(ind(ii,jj),:)),150);
+                [Xdist{ii,jj}, Ydist{ii,jj}] = rst_RASH(sort(X(ind(ii,jj),~nanInd & ~outliers{ii,jj})),200);
                 u = NaN; % not sure how to handle this with RASH yet
 %                 Xdist{ii,jj}(Ydist{ii,jj}==0)=[];
 %                 Ydist{ii,jj}(Ydist{ii,jj}==0)=[];
@@ -232,13 +248,13 @@ for ii=1:size(ind,1)
         jit = (ValidInArgs.jitter(ind(ii,jj),:)) * wdth;         
         % info for making boxplot
         if RSTpresent
-            [quartiles(1),CIQ] = rst_hd(X(ind(ii,jj),:),0.25);
-            [quartiles(2),CIQ] = rst_hd(X(ind(ii,jj),:),0.75);
-            [quartiles(3),CIQ] = rst_hd(X(ind(ii,jj),:),0.5);
+            [quartiles(1),CIQ] = rst_hd(X(ind(ii,jj),~outliers{ii,jj}),0.25);
+            [quartiles(2),CIQ] = rst_hd(X(ind(ii,jj),~outliers{ii,jj}),0.75);
+            [quartiles(3),CIQ] = rst_hd(X(ind(ii,jj),~outliers{ii,jj}),0.5);
         else
-            [quartiles(1)] = quantile(X(ind(ii,jj),:),0.25);
-            [quartiles(2)] = quantile(X(ind(ii,jj),:),0.75);
-            [quartiles(3)] = quantile(X(ind(ii,jj),:),0.5);
+            [quartiles(1)] = quantile(X(ind(ii,jj),~outliers{ii,jj}),0.25);
+            [quartiles(2)] = quantile(X(ind(ii,jj),~outliers{ii,jj}),0.75);
+            [quartiles(3)] = quantile(X(ind(ii,jj),~outliers{ii,jj}),0.5);
         end
         
         iqr         = quartiles(2) - quartiles(1);
@@ -250,9 +266,12 @@ for ii=1:size(ind,1)
         whiskers(2) = quartiles(2) + (1.5 * iqr);
         WiskX{ii,jj}      =  [quartiles(2) whiskers(1);quartiles(1) whiskers(2)];
         
+        % finds the first value of the distribution greater than the
+        % quartiles (1,2,3 quartiles).
         [~,tmp] = max( (ones(size(quartiles,2),1)*Xdist{ii,jj}) > (ones(size(Xdist{ii,jj},2),1) *quartiles)',[],2);
 %         [~,tmp]     = max(Xdist{ii,jj}>quartiles',[],2);
-        Xqrtls{ii,jj}  = [Xdist{ii,jj}(tmp);Xdist{ii,jj}(tmp)];
+%         Xqrtls{ii,jj}  = [Xdist{ii,jj}(tmp);Xdist{ii,jj}(tmp)];
+        Xqrtls{ii,jj}  = [quartiles;quartiles];
         Yqrtls{ii,jj}  = [zeros(1,3);Ydist{ii,jj}(tmp)* (-1)^(ii-1)];
         % raindrops
         drops_posY{ii,jj} = jit + ylmax .* ValidInArgs.dot_dodge_amount;
@@ -270,14 +289,24 @@ end
 med =[XGrid{ind(~isnan(ind))}];
 
 %% compute offsets
-distW = cellfun(@(x) max(abs(x)),Ydist);
-ldists = max(distW(2:2:end,2:end),[],1);
-rdists = max(distW(1:2:end,1:end-1),[],1);
-tmp =  rdists;
-if ~isempty(ldists),tmp = tmp + ldists;end
-distances = cumsum([0 tmp]).*1.05;
-Yoffs = num2cell(distances);Yoffs = repmat(Yoffs,size(ind,1),1);
-Xoffs = num2cell(zeros(size(Yoffs)));
+if ~iscell(ValidInArgs.Yoffs) 
+    distW = cellfun(@(x) max(abs(x)),Ydist);
+    ldists = max(distW(2:2:end,2:end),[],1);
+    rdists = max(distW(1:2:end,1:end-1),[],1);
+    tmp =  rdists;
+    if ~isempty(ldists),tmp = tmp + ldists;end
+    distances = cumsum([0 tmp]).*1.05;
+    Yoffs = num2cell(distances);
+    Yoffs = repmat(Yoffs,size(ind,1),1);
+else
+    Yoffs = ValidInArgs.Yoffs;
+end
+if ~iscell(ValidInArgs.Xoffs) 
+    Xoffs = num2cell(zeros(size(Yoffs)));
+else
+    Xoffs = ValidInArgs.Xoffs;
+end
+
 hh = Yoffs{end}(1)/5/numel(ind);
 if ~hh,hh=distW(end)/5/numel(ind);end
 for jj=1:size(ind,2) % number of violins
@@ -289,7 +318,7 @@ for jj=1:size(ind,2) % number of violins
         x2 = Xqrtls{ii,jj}(1,2);
         xm = mean([x1 x2]);
         ym = Yqrtls{ii,jj}(1,3);
-        a = abs(diff([x1 x2]));
+        a = abs(diff([x1 x2]))/2;
         b = hh;
 %         create a scaled rectcircle with proportion 5x3x1 (x,y,r)
         [XBox{ii,jj},~] = roundedRect(xm,ym,a,a/5*3,a/5);
@@ -495,6 +524,7 @@ if PlotLegend
         'LineStyle','none');
     
     [dim(1), dim(2)] = dataPointsToUnit(ax,legendx(end),yl(1)*1.01,'normalized');
+    dim = arrayfun(@(x)min(max(x,0),1),dim);
     an3 = annotation('textbox',[dim 0.3 0.3],...
         'String',num2str(round(legendPointSize(end),2)),...
         'VerticalAlignment','bottom',...
