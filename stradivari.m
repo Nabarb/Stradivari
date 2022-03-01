@@ -286,7 +286,8 @@ for ii=1:size(ind,1)
     end
 end
 %% order median values to reflect input order;
-med =[XGrid{ind(~isnan(ind))}];
+med = nan(numel(XGrid));
+med(ind(~isnan(ind))) =[XGrid{:}];
 
 %% compute offsets
 if ~iscell(ValidInArgs.Yoffs) 
